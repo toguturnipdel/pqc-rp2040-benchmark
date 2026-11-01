@@ -1,4 +1,6 @@
 build/
 __pycache__/
 *.pyc
-data/
+data/processed/
+tools/falcon_keygen/falcon_keygen
+tests/hs_sim/hs_sim

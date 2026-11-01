@@ -1,0 +1,34 @@
+
+=== Falcon-1024 small-memory diagnostic ===
+CSV,meta,firmware,diag_falcon
+CSV,meta,wolfssl,5.9.2
+CSV,meta,clk_sys_hz,125000000
+CSV,meta,board_id,E66440A2CB935B2B
+CSV,meta,config,diag falcon1024 small-memory signer, WITH allocator hook
+CSV,meta,heap_capacity_bytes,205720
+CSV,meta,code_location,XIP
+CSV,diag,import,0
+CSV,diag_heap,before_sign,arena=920,inuse=144,free=776
+CSV,diag,sign_start,0
+CSV,diag,sign_done,0,ret=0,us=3093380,sig=1271
+CSV,diag,verify,0,ret=0,res=1
+CSV,diag_heap,after_round,arena=127896,inuse=144,free=127752
+CSV,diag,sign_start,1
+CSV,diag,sign_done,1,ret=0,us=3097595,sig=1276
+CSV,diag,verify,1,ret=0,res=1
+CSV,diag_heap,after_round,arena=127896,inuse=144,free=127752
+CSV,diag,sign_start,2
+CSV,diag,sign_done,2,ret=0,us=3098348,sig=1267
+CSV,diag,verify,2,ret=0,res=1
+CSV,diag_heap,after_round,arena=127896,inuse=144,free=127752
+CSV,diag,sign_start,3
+CSV,diag,alive,17
+CSV,diag,sign_done,3,ret=0,us=3088129,sig=1275
+CSV,diag,verify,3,ret=0,res=1
+CSV,diag_heap,after_round,arena=127896,inuse=144,free=127752
+CSV,diag,sign_start,4
+CSV,diag,sign_done,4,ret=0,us=3089155,sig=1272
+CSV,diag,verify,4,ret=0,res=1
+CSV,diag_heap,after_round,arena=127896,inuse=144,free=127752
+
+=== falcon diagnostic done ===

@@ -1,324 +1,350 @@
 /*
- * Hybrid X25519 + ML-KEM benchmark for the Raspberry Pi Pico (RP2040), wolfCrypt.
- * ML-KEM-512 (L1), ML-KEM-768 (L3) and ML-KEM-1024 (L5). X25519 does not
- * depend on the level and is measured once.
+ * Hybrid X25519 + ML-KEM key-exchange benchmark for the Raspberry Pi Pico
+ * (RP2040), wolfCrypt. ML-KEM-512 (L1), ML-KEM-768 (L3), ML-KEM-1024 (L5).
  *
- * Core 0 services USB serial. Core 1 runs the benchmark on a dedicated 64 KB
- * stack, which keeps USB interrupts out of the timed code and allows exact
- * stack measurement.
+ * Each round runs a complete hybrid exchange between a client and a server
+ * that hold separate key objects, and times every step:
+ *   client: X25519 keygen, ML-KEM keygen, serialise (X25519 pk || ML-KEM ek)
+ *   server: parse, X25519 keygen, X25519 shared secret, ML-KEM encapsulation,
+ *           combiner, serialise (X25519 pk || ML-KEM ct)
+ *   client: parse, X25519 shared secret, ML-KEM decapsulation, combiner
+ * Two combiners are timed on both sides and checked for agreement:
+ *   - HKDF-SHA256 over ss_MLKEM || ss_X25519 (TLS 1.3 hybrid concatenation
+ *     fed to an HKDF extract/expand; the full TLS key schedule is not run)
+ *   - X-Wing-style SHA3-256(label || ss_MLKEM || ss_X25519 || ct_X || pk_X)
+ * Every sample is printed as a RAW line; role totals are formed in analysis.
+ *
+ * Optional (-DWITH_P256): P-256 ECDH (wolfCrypt SP math with ARMv6-M Thumb
+ * assembly) as an alternative classical component.
+ *
+ * After the timing loop, a memory pass measures peak stack and peak heap per
+ * operation and re-runs each operation under emulated RFC 7228 RAM budgets.
+ *
+ * Core 0 services USB serial; core 1 runs the benchmark on a dedicated stack.
  */
-#include <stdio.h>
-#include <string.h>
-#include <inttypes.h>
-#include <malloc.h>
+#define FW_NAME            "kem"
+#define CORE1_STACK_WORDS  (64 * 1024 / 4)
+#include "bench_common.h"
 
-#include "pico/stdlib.h"
-#include "pico/multicore.h"
-#include "pico/rand.h"
-#include "hardware/clocks.h"
-
-#include <wolfssl/wolfcrypt/settings.h>
-#include <wolfssl/version.h>
 #include <wolfssl/wolfcrypt/wc_port.h>
 #include <wolfssl/wolfcrypt/random.h>
 #include <wolfssl/wolfcrypt/curve25519.h>
 #include <wolfssl/wolfcrypt/wc_mlkem.h>
+#include <wolfssl/wolfcrypt/hmac.h>
+#include <wolfssl/wolfcrypt/sha3.h>
+#ifdef WITH_P256
+#include <wolfssl/wolfcrypt/ecc.h>
+#endif
 
+#ifndef KEM_ROUNDS
+#define KEM_ROUNDS         100
+#endif
 #define WARMUP_ROUNDS      1
-#define ROUNDS             20
-#define CORE1_STACK_WORDS  (64 * 1024 / 4)
-#define PAINT              0xC0FFEE11u
 #define SS_LEN             32
-#define CT_MAX             1568   /* ML-KEM-1024 ciphertext, the largest here */
+#define X_LEN              CURVE25519_KEYSIZE   /* 32 */
+#define CT_MAX             1568                 /* ML-KEM-1024 ciphertext */
+#define EK_MAX             1568                 /* ML-KEM-1024 encapsulation key */
 
-static uint32_t core1_stack[CORE1_STACK_WORDS];
-
-/* ML-KEM levels under test */
-typedef struct {
-    const char *name;   /* e.g. "ML-KEM-768" */
-    const char *level;  /* NIST level tag: "L1"/"L3"/"L5" */
-    int         type;   /* WC_ML_KEM_512 / _768 / _1024 */
-} kem_param_t;
-
+typedef struct { const char *name, *hybrid, *level; int type; } kem_param_t;
 static const kem_param_t KEMS[] = {
-    { "ML-KEM-512",  "L1", WC_ML_KEM_512  },
-    { "ML-KEM-768",  "L3", WC_ML_KEM_768  },
-    { "ML-KEM-1024", "L5", WC_ML_KEM_1024 },
+    { "ML-KEM-512",  "X25519+ML-KEM-512",  "L1", WC_ML_KEM_512  },
+    { "ML-KEM-768",  "X25519+ML-KEM-768",  "L3", WC_ML_KEM_768  },
+    { "ML-KEM-1024", "X25519+ML-KEM-1024", "L5", WC_ML_KEM_1024 },
 };
-#define N_KEMS (sizeof(KEMS)/sizeof(KEMS[0]))
+#define N_KEMS (sizeof(KEMS) / sizeof(KEMS[0]))
 
-/* Entropy hook for wolfCrypt */
-int pico_rng_seed(unsigned char *out, unsigned int sz)
+/* Operations timed per round (index into stats and RAW op names). */
+enum {
+    OP_C_XKG, OP_C_KKG, OP_C_SER,
+    OP_S_PARSE, OP_S_XKG, OP_S_XDH, OP_S_ENC, OP_S_HKDF, OP_S_XWING, OP_S_SER,
+    OP_C_PARSE, OP_C_XDH, OP_C_DEC, OP_C_HKDF, OP_C_XWING,
+    N_OPS
+};
+static const char *OPN[N_OPS] = {
+    "client_x25519_keygen", "client_kem_keygen", "client_serialise",
+    "server_parse", "server_x25519_keygen", "server_x25519_shared", "server_kem_encaps",
+    "server_combine_hkdf", "server_combine_xwing", "server_serialise",
+    "client_parse", "client_x25519_shared", "client_kem_decaps",
+    "client_combine_hkdf", "client_combine_xwing",
+};
+static stat_t ST[N_KEMS][N_OPS];
+
+/* Key objects and buffers (static: not counted as stack) */
+static curve25519_key x_cli, x_srv, x_cli_peer, x_srv_peer;
+static MlKemKey       kem_cli, kem_srv;
+static uint8_t        msg_c2s[X_LEN + EK_MAX];   /* X25519 pk || ML-KEM ek */
+static uint8_t        msg_s2c[X_LEN + CT_MAX];   /* X25519 pk || ML-KEM ct */
+static uint8_t        ct[CT_MAX];
+static uint8_t        ss_k_srv[SS_LEN], ss_k_cli[SS_LEN];
+static uint8_t        ss_x_srv[X_LEN],  ss_x_cli[X_LEN];
+static uint8_t        key_hkdf_srv[32], key_hkdf_cli[32], key_xw_srv[32], key_xw_cli[32];
+static word32         ek_len, ct_len;
+
+/* ------------------------------------------------------------------------ */
+/* Combiners                                                                 */
+/* ------------------------------------------------------------------------ */
+static const byte HKDF_INFO[] = "rp2040 hybrid x25519+mlkem";
+static int combine_hkdf(const uint8_t *ss_k, const uint8_t *ss_x, uint8_t *out)
 {
-    while (sz > 0) {
-        uint32_t r = get_rand_32();
-        unsigned int n = (sz < 4) ? sz : 4;
-        memcpy(out, &r, n);
-        out += n;
-        sz  -= n;
-    }
-    return 0;
+    uint8_t ikm[SS_LEN + X_LEN];
+    memcpy(ikm, ss_k, SS_LEN); memcpy(ikm + SS_LEN, ss_x, X_LEN);
+    return wc_HKDF(WC_SHA256, ikm, sizeof ikm, NULL, 0, HKDF_INFO, sizeof HKDF_INFO - 1, out, 32);
+}
+/* X-Wing label "\.//^\" (6 bytes) */
+static const uint8_t XWING_LABEL[6] = { 0x5c, 0x2e, 0x2f, 0x2f, 0x5e, 0x5c };
+static int combine_xwing(const uint8_t *ss_k, const uint8_t *ss_x,
+                         const uint8_t *ct_x, const uint8_t *pk_x, uint8_t *out)
+{
+    uint8_t in[6 + SS_LEN + X_LEN + X_LEN + X_LEN];
+    memcpy(in, XWING_LABEL, 6);
+    memcpy(in + 6, ss_k, SS_LEN);
+    memcpy(in + 6 + SS_LEN, ss_x, X_LEN);
+    memcpy(in + 6 + SS_LEN + X_LEN, ct_x, X_LEN);
+    memcpy(in + 6 + SS_LEN + 2 * X_LEN, pk_x, X_LEN);
+    return wc_Sha3_256Hash(in, sizeof in, out);
 }
 
-/* Statistics */
-typedef struct { uint64_t sum, min, max; uint32_t n; } stat_t;
-
-static void stat_init(stat_t *s) { s->sum = 0; s->min = UINT64_MAX; s->max = 0; s->n = 0; }
-static void stat_add(stat_t *s, uint64_t us)
-{
-    s->sum += us;
-    if (us < s->min) s->min = us;
-    if (us > s->max) s->max = us;
-    s->n++;
-}
-static uint64_t stat_avg(const stat_t *s) { return s->n ? s->sum / s->n : 0; }
-
-/* X25519 baseline (level-independent) */
-static stat_t x_keygen, x_dh;
-
-/* Per-level ML-KEM and hybrid stats */
-static stat_t kem_keygen[N_KEMS], kem_encaps[N_KEMS], kem_decaps[N_KEMS];
-static stat_t hyb_ckeygen[N_KEMS], hyb_sencaps[N_KEMS], hyb_cdecaps[N_KEMS];
-
-/* Crypto objects (static: not counted as stack) */
-static curve25519_key x_client, x_server;
-static MlKemKey       kem;
-static uint8_t        ct[CT_MAX], ss_enc[SS_LEN], ss_dec[SS_LEN];
-static uint8_t        xss_client[CURVE25519_KEYSIZE], xss_server[CURVE25519_KEYSIZE];
-
-#define TIMED(dst, call) do { uint64_t t0_ = time_us_64(); ret = (call); \
-                              (dst) = time_us_64() - t0_; } while (0)
-
-/* One hybrid round at a given ML-KEM level. record==false for warm-up. */
-static int run_round(int k, WC_RNG *rng, bool record)
+/* ------------------------------------------------------------------------ */
+/* One complete hybrid exchange                                              */
+/* ------------------------------------------------------------------------ */
+static int run_round(unsigned k, WC_RNG *rng, bool record, uint32_t idx)
 {
     int ret;
-    word32 ct_len = 0;
-    word32 len_c = sizeof(xss_client), len_s = sizeof(xss_server);
-    uint64_t xkg_c = 0, xkg_s = 0, xdh_s = 0, xdh_c = 0, kkg = 0, kenc = 0, kdec = 0;
+    uint64_t t[N_OPS];
+    word32 len;
+    memset(t, 0, sizeof t);
 
-    wc_curve25519_init(&x_client);
-    wc_curve25519_init(&x_server);
-    ret = wc_MlKemKey_Init(&kem, KEMS[k].type, NULL, INVALID_DEVID);
-    if (ret != 0) goto out;
+    wc_curve25519_init(&x_cli); wc_curve25519_init(&x_srv);
+    wc_curve25519_init(&x_cli_peer); wc_curve25519_init(&x_srv_peer);
+    if ((ret = wc_MlKemKey_Init(&kem_cli, KEMS[k].type, NULL, INVALID_DEVID)) != 0) goto out;
+    if ((ret = wc_MlKemKey_Init(&kem_srv, KEMS[k].type, NULL, INVALID_DEVID)) != 0) goto out;
+    if ((ret = wc_MlKemKey_PublicKeySize(&kem_cli, &ek_len)) != 0) goto out;
+    if ((ret = wc_MlKemKey_CipherTextSize(&kem_cli, &ct_len)) != 0) goto out;
 
-    /* Client: hybrid key generation */
-    TIMED(xkg_c, wc_curve25519_make_key(rng, CURVE25519_KEYSIZE, &x_client));            if (ret) goto out;
-    TIMED(kkg,   wc_MlKemKey_MakeKey(&kem, rng));                                         if (ret) goto out;
+    /* ---- client: key generation and first message ---- */
+    TIMED(t[OP_C_XKG], wc_curve25519_make_key(rng, X_LEN, &x_cli));   if (ret) goto out;
+    TIMED(t[OP_C_KKG], wc_MlKemKey_MakeKey(&kem_cli, rng));           if (ret) goto out;
+    len = X_LEN;
+    TIMED(t[OP_C_SER], (wc_curve25519_export_public_ex(&x_cli, msg_c2s, &len, EC25519_LITTLE_ENDIAN) ||
+                        wc_MlKemKey_EncodePublicKey(&kem_cli, msg_c2s + X_LEN, ek_len)) ? -1 : 0);
+    if (ret) goto out;
 
-    /* Server: ephemeral X25519 + shared secret + ML-KEM encapsulation */
-    TIMED(xkg_s, wc_curve25519_make_key(rng, CURVE25519_KEYSIZE, &x_server));            if (ret) goto out;
-    TIMED(xdh_s, wc_curve25519_shared_secret(&x_server, &x_client, xss_server, &len_s)); if (ret) goto out;
-    TIMED(kenc,  wc_MlKemKey_Encapsulate(&kem, ct, ss_enc, rng));                         if (ret) goto out;
+    /* ---- server ---- */
+    TIMED(t[OP_S_PARSE], (wc_curve25519_import_public_ex(msg_c2s, X_LEN, &x_srv_peer, EC25519_LITTLE_ENDIAN) ||
+                          wc_MlKemKey_DecodePublicKey(&kem_srv, msg_c2s + X_LEN, ek_len)) ? -1 : 0);
+    if (ret) goto out;
+    TIMED(t[OP_S_XKG], wc_curve25519_make_key(rng, X_LEN, &x_srv));   if (ret) goto out;
+    len = X_LEN;
+    TIMED(t[OP_S_XDH], wc_curve25519_shared_secret_ex(&x_srv, &x_srv_peer, ss_x_srv, &len, EC25519_LITTLE_ENDIAN));
+    if (ret) goto out;
+    TIMED(t[OP_S_ENC], wc_MlKemKey_Encapsulate(&kem_srv, ct, ss_k_srv, rng)); if (ret) goto out;
+    len = X_LEN;
+    TIMED(t[OP_S_SER], (wc_curve25519_export_public_ex(&x_srv, msg_s2c, &len, EC25519_LITTLE_ENDIAN) ? -1 :
+                        (memcpy(msg_s2c + X_LEN, ct, ct_len), 0)));
+    if (ret) goto out;
+    TIMED(t[OP_S_HKDF],  combine_hkdf(ss_k_srv, ss_x_srv, key_hkdf_srv)); if (ret) goto out;
+    TIMED(t[OP_S_XWING], combine_xwing(ss_k_srv, ss_x_srv, msg_s2c, msg_c2s, key_xw_srv)); if (ret) goto out;
 
-    /* Client: X25519 shared secret + ML-KEM decapsulation */
-    ret = wc_MlKemKey_CipherTextSize(&kem, &ct_len);                                      if (ret) goto out;
-    TIMED(xdh_c, wc_curve25519_shared_secret(&x_client, &x_server, xss_client, &len_c)); if (ret) goto out;
-    TIMED(kdec,  wc_MlKemKey_Decapsulate(&kem, ss_dec, ct, ct_len));                      if (ret) goto out;
+    /* ---- client: second half ---- */
+    TIMED(t[OP_C_PARSE], wc_curve25519_import_public_ex(msg_s2c, X_LEN, &x_cli_peer, EC25519_LITTLE_ENDIAN));
+    if (ret) goto out;
+    len = X_LEN;
+    TIMED(t[OP_C_XDH], wc_curve25519_shared_secret_ex(&x_cli, &x_cli_peer, ss_x_cli, &len, EC25519_LITTLE_ENDIAN));
+    if (ret) goto out;
+    TIMED(t[OP_C_DEC], wc_MlKemKey_Decapsulate(&kem_cli, ss_k_cli, msg_s2c + X_LEN, ct_len)); if (ret) goto out;
+    TIMED(t[OP_C_HKDF],  combine_hkdf(ss_k_cli, ss_x_cli, key_hkdf_cli)); if (ret) goto out;
+    TIMED(t[OP_C_XWING], combine_xwing(ss_k_cli, ss_x_cli, msg_s2c, msg_c2s, key_xw_cli)); if (ret) goto out;
 
-    /* Correctness: both sides must derive identical secrets */
-    if (len_c != len_s || memcmp(xss_client, xss_server, len_c) != 0 ||
-        memcmp(ss_enc, ss_dec, SS_LEN) != 0) {
-        ret = -9999;
-        goto out;
+    /* Correctness: component secrets and both combined keys must agree */
+    if (memcmp(ss_x_cli, ss_x_srv, X_LEN) || memcmp(ss_k_cli, ss_k_srv, SS_LEN) ||
+        memcmp(key_hkdf_cli, key_hkdf_srv, 32) || memcmp(key_xw_cli, key_xw_srv, 32)) {
+        ret = -9999; goto out;
     }
 
     if (record) {
-        /* X25519 is identical across levels; record it only on the first level
-         * so its sample count is not triple-counted. */
-        if (k == 0) {
-            stat_add(&x_keygen, xkg_c); stat_add(&x_keygen, xkg_s);
-            stat_add(&x_dh, xdh_s);     stat_add(&x_dh, xdh_c);
+        for (int o = 0; o < N_OPS; o++) {
+            st_add(&ST[k][o], t[o]);
+            raw(KEMS[k].hybrid, KEMS[k].level, OPN[o], idx, t[o]);
         }
-        stat_add(&kem_keygen[k], kkg);
-        stat_add(&kem_encaps[k], kenc);
-        stat_add(&kem_decaps[k], kdec);
-        stat_add(&hyb_ckeygen[k], xkg_c + kkg);
-        stat_add(&hyb_sencaps[k], xkg_s + xdh_s + kenc);
-        stat_add(&hyb_cdecaps[k], xdh_c + kdec);
     }
-
 out:
-    wc_MlKemKey_Free(&kem);
-    wc_curve25519_free(&x_client);
-    wc_curve25519_free(&x_server);
+    wc_MlKemKey_Free(&kem_cli); wc_MlKemKey_Free(&kem_srv);
+    wc_curve25519_free(&x_cli); wc_curve25519_free(&x_srv);
+    wc_curve25519_free(&x_cli_peer); wc_curve25519_free(&x_srv_peer);
     return ret;
 }
 
-static void row(const char *label, const stat_t *s)
+#ifdef WITH_P256
+/* ------------------------------------------------------------------------ */
+/* P-256 ECDH (alternative classical component)                             */
+/* ------------------------------------------------------------------------ */
+static ecc_key p_cli, p_srv;
+static int bench_p256(WC_RNG *rng)
 {
-    printf("  %-28s %10llu %10llu %10llu\n", label,
-           (unsigned long long)stat_avg(s),
-           (unsigned long long)s->min, (unsigned long long)s->max);
-}
-static void csv(const char *tag, const char *lvl, const char *op, const stat_t *s)
-{
-    printf("CSV,%s,%s,%s,%lu,%llu,%llu,%llu\n", tag, lvl, op,
-           (unsigned long)s->n, (unsigned long long)stat_avg(s),
-           (unsigned long long)s->min, (unsigned long long)s->max);
-}
-
-static void print_results(void)
-{
-    printf("\n--- Latency over %d rounds (microseconds) ---\n", ROUNDS);
-    printf("  %-28s %10s %10s %10s\n", "operation", "avg", "min", "max");
-
-    row("X25519 keygen", &x_keygen);
-    row("X25519 shared secret", &x_dh);
-
-    for (unsigned k = 0; k < N_KEMS; k++) {
-        char lbl[48];
-        printf("  --- %s (%s) ---\n", KEMS[k].name, KEMS[k].level);
-        snprintf(lbl, sizeof lbl, "%s keygen", KEMS[k].name); row(lbl, &kem_keygen[k]);
-        snprintf(lbl, sizeof lbl, "%s encaps", KEMS[k].name); row(lbl, &kem_encaps[k]);
-        snprintf(lbl, sizeof lbl, "%s decaps", KEMS[k].name); row(lbl, &kem_decaps[k]);
-        snprintf(lbl, sizeof lbl, "Hybrid client keygen");    row(lbl, &hyb_ckeygen[k]);
-        snprintf(lbl, sizeof lbl, "Hybrid server encaps");    row(lbl, &hyb_sencaps[k]);
-        snprintf(lbl, sizeof lbl, "Hybrid client decaps");    row(lbl, &hyb_cdecaps[k]);
+    int ret = 0;
+    stat_t kg, dh; st_init(&kg); st_init(&dh);
+    uint8_t s1[32], s2[32];
+    for (int i = -WARMUP_ROUNDS; i < KEM_ROUNDS; i++) {
+        uint64_t a, b, c, d; word32 l1 = 32, l2 = 32;
+        wc_ecc_init(&p_cli); wc_ecc_init(&p_srv);
+        wc_ecc_set_rng(&p_cli, rng); wc_ecc_set_rng(&p_srv, rng);
+        TIMED(a, wc_ecc_make_key_ex(rng, 32, &p_cli, ECC_SECP256R1)); if (ret) goto e;
+        TIMED(b, wc_ecc_make_key_ex(rng, 32, &p_srv, ECC_SECP256R1)); if (ret) goto e;
+        TIMED(c, wc_ecc_shared_secret(&p_srv, &p_cli, s1, &l1));      if (ret) goto e;
+        TIMED(d, wc_ecc_shared_secret(&p_cli, &p_srv, s2, &l2));      if (ret) goto e;
+        if (l1 != l2 || memcmp(s1, s2, l1)) { ret = -9998; goto e; }
+        if (i >= 0) {
+            st_add(&kg, a); st_add(&kg, b); st_add(&dh, c); st_add(&dh, d);
+            raw("P-256", "--", "keygen", 2 * i, a);  raw("P-256", "--", "keygen", 2 * i + 1, b);
+            raw("P-256", "--", "shared", 2 * i, c);  raw("P-256", "--", "shared", 2 * i + 1, d);
+        }
+        wc_ecc_free(&p_cli); wc_ecc_free(&p_srv);
+        continue;
+e:      wc_ecc_free(&p_cli); wc_ecc_free(&p_srv);
+        printf("ERROR: P-256 round %d: %d\n", i, ret);
+        return ret;
     }
+    printf("CSV,latency_us,--,P-256 keygen,%lu,%llu,%llu,%llu\n", (unsigned long)kg.n,
+           (unsigned long long)st_avg(&kg), (unsigned long long)kg.min, (unsigned long long)kg.max);
+    printf("CSV,latency_us,--,P-256 shared,%lu,%llu,%llu,%llu\n", (unsigned long)dh.n,
+           (unsigned long long)st_avg(&dh), (unsigned long long)dh.min, (unsigned long long)dh.max);
+    return 0;
+}
+#endif
 
-    /* Machine-readable block. tag=latency_us, then level, operation, n, avg, min, max */
-    csv("latency_us", "--", "X25519 keygen", &x_keygen);
-    csv("latency_us", "--", "X25519 shared secret", &x_dh);
-    for (unsigned k = 0; k < N_KEMS; k++) {
-        const char *L = KEMS[k].level;
-        csv("latency_us", L, "kem_keygen",   &kem_keygen[k]);
-        csv("latency_us", L, "kem_encaps",   &kem_encaps[k]);
-        csv("latency_us", L, "kem_decaps",   &kem_decaps[k]);
-        csv("latency_us", L, "hybrid_client_keygen", &hyb_ckeygen[k]);
-        csv("latency_us", L, "hybrid_server_encaps", &hyb_sencaps[k]);
-        csv("latency_us", L, "hybrid_client_decaps", &hyb_cdecaps[k]);
-    }
-}
-
-/* Stack measurement (stack painting on core 1) */
-static __attribute__((noinline)) uint32_t *stack_ref(void)
+/* ------------------------------------------------------------------------ */
+/* Backward-compatible summary lines (CSV,latency_us,...)                    */
+/* ------------------------------------------------------------------------ */
+static void csvl(const char *lvl, const char *op, const stat_t *s)
 {
-    return (uint32_t *)((uintptr_t)__builtin_frame_address(0) & ~(uintptr_t)3);
+    printf("CSV,latency_us,%s,%s,%lu,%llu,%llu,%llu\n", lvl, op, (unsigned long)s->n,
+           (unsigned long long)st_avg(s), (unsigned long long)s->min, (unsigned long long)s->max);
 }
-static __attribute__((noinline)) void stack_paint(uint32_t *ref)
+static void print_summary(void)
 {
-    for (uint32_t *p = core1_stack; p < ref - 128; p++)   /* stay 512 B below live frames */
-        *p = PAINT;
-}
-static uint32_t stack_depth(uint32_t *ref)
-{
-    uint32_t *p = core1_stack;
-    while (p < ref && *p == PAINT) p++;
-    return (uint32_t)((ref - p) * 4);
+    for (unsigned k = 0; k < N_KEMS; k++)
+        for (int o = 0; o < N_OPS; o++)
+            csvl(KEMS[k].level, OPN[o], &ST[k][o]);
 }
 
-#define STACK_OP(lvl, label, call) do {                                         \
-    uint32_t *ref_ = stack_ref();                                               \
-    stack_paint(ref_);                                                          \
-    int r_ = (call);                                                            \
-    uint32_t d_ = stack_depth(ref_);                                            \
-    bool full_ = (d_ >= (uint32_t)((ref_ - core1_stack) * 4));                  \
-    printf("  %-28s %6" PRIu32 " B%s%s\n", label, d_,                           \
-           r_ ? "  (ERROR)" : "", full_ ? "  (STACK EXHAUSTED)" : "");          \
-    printf("CSV,stack_bytes,%s,%s,%" PRIu32 "\n", lvl, label, d_);              \
-} while (0)
+/* ------------------------------------------------------------------------ */
+/* Memory pass: per-operation peak stack and heap, then RAM budgets          */
+/* ------------------------------------------------------------------------ */
+typedef struct { WC_RNG *rng; unsigned k; } kctx_t;
+
+static int op_x_keygen(void *c) { kctx_t *x = c; return wc_curve25519_make_key(x->rng, X_LEN, &x_cli); }
+static int op_x_shared(void *c) { (void)c; word32 l = X_LEN;
+    return wc_curve25519_shared_secret_ex(&x_cli, &x_cli_peer, ss_x_cli, &l, EC25519_LITTLE_ENDIAN); }
+static int op_k_keygen(void *c) { kctx_t *x = c; return wc_MlKemKey_MakeKey(&kem_cli, x->rng); }
+static int op_k_encode(void *c) { (void)c; return wc_MlKemKey_EncodePublicKey(&kem_cli, msg_c2s + X_LEN, ek_len); }
+static int op_k_decode(void *c) { (void)c; return wc_MlKemKey_DecodePublicKey(&kem_srv, msg_c2s + X_LEN, ek_len); }
+static int op_k_encaps(void *c) { kctx_t *x = c; return wc_MlKemKey_Encapsulate(&kem_srv, ct, ss_k_srv, x->rng); }
+static int op_k_decaps(void *c) { (void)c; return wc_MlKemKey_Decapsulate(&kem_cli, ss_k_cli, ct, ct_len); }
+static int op_hkdf(void *c)     { (void)c; return combine_hkdf(ss_k_cli, ss_x_cli, key_hkdf_cli); }
+static int op_xwing(void *c)    { (void)c; return combine_xwing(ss_k_cli, ss_x_cli, msg_s2c, msg_c2s, key_xw_cli); }
+
+static void measure(const char *scheme, const char *lvl, const char *op, op_fn fn, void *ctx, size_t static_b)
+{
+    mem_t m;
+    mem_measure(scheme, lvl, op, fn, ctx, static_b, &m);
+    mem_budget(scheme, lvl, op, fn, ctx, static_b, &m);
+    fn(ctx);   /* unconstrained re-run: restores state if a capped run failed midway */
+}
 
 static void memory_pass(WC_RNG *rng)
 {
-    word32 len = sizeof(xss_client);
+    kctx_t c = { rng, 0 };
+    const size_t XK = sizeof(curve25519_key), KK = sizeof(MlKemKey);
+    printf("\n--- Memory pass (stack, heap, RAM budgets) ---\n");
 
-    printf("\n--- Peak stack per operation ---\n");
-
-    wc_curve25519_init(&x_client);
-    wc_curve25519_init(&x_server);
-    STACK_OP("--", "X25519 keygen",
-             wc_curve25519_make_key(rng, CURVE25519_KEYSIZE, &x_client));
-    wc_curve25519_make_key(rng, CURVE25519_KEYSIZE, &x_server);
-    STACK_OP("--", "X25519 shared secret",
-             wc_curve25519_shared_secret(&x_client, &x_server, xss_client, &len));
-    wc_curve25519_free(&x_client);
-    wc_curve25519_free(&x_server);
+    wc_curve25519_init(&x_cli); wc_curve25519_init(&x_cli_peer); wc_curve25519_init(&x_srv);
+    wc_curve25519_make_key(rng, X_LEN, &x_srv);
+    { word32 l = X_LEN; wc_curve25519_export_public_ex(&x_srv, msg_s2c, &l, EC25519_LITTLE_ENDIAN); }
+    wc_curve25519_import_public_ex(msg_s2c, X_LEN, &x_cli_peer, EC25519_LITTLE_ENDIAN);
+    measure("X25519", "--", "keygen", op_x_keygen, &c, XK);
+    measure("X25519", "--", "shared", op_x_shared, &c, 2 * XK + X_LEN);
 
     for (unsigned k = 0; k < N_KEMS; k++) {
-        char lbl[48];
-        word32 ct_len = 0;
-        if (wc_MlKemKey_Init(&kem, KEMS[k].type, NULL, INVALID_DEVID) != 0) {
-            printf("  %s init failed\n", KEMS[k].name);
-            continue;
-        }
-        snprintf(lbl, sizeof lbl, "%s keygen", KEMS[k].name);
-        STACK_OP(KEMS[k].level, lbl, wc_MlKemKey_MakeKey(&kem, rng));
-        snprintf(lbl, sizeof lbl, "%s encaps", KEMS[k].name);
-        STACK_OP(KEMS[k].level, lbl, wc_MlKemKey_Encapsulate(&kem, ct, ss_enc, rng));
-        wc_MlKemKey_CipherTextSize(&kem, &ct_len);
-        snprintf(lbl, sizeof lbl, "%s decaps", KEMS[k].name);
-        STACK_OP(KEMS[k].level, lbl, wc_MlKemKey_Decapsulate(&kem, ss_dec, ct, ct_len));
-        wc_MlKemKey_Free(&kem);
+        c.k = k;
+        wc_MlKemKey_Init(&kem_cli, KEMS[k].type, NULL, INVALID_DEVID);
+        wc_MlKemKey_Init(&kem_srv, KEMS[k].type, NULL, INVALID_DEVID);
+        wc_MlKemKey_PublicKeySize(&kem_cli, &ek_len);
+        wc_MlKemKey_CipherTextSize(&kem_cli, &ct_len);
+        printf("CSV,meta,ml_kem_sizes_%s,ek=%u ct=%u\n", KEMS[k].level, (unsigned)ek_len, (unsigned)ct_len);
+        measure(KEMS[k].name, KEMS[k].level, "keygen", op_k_keygen, &c, KK);
+        measure(KEMS[k].name, KEMS[k].level, "encode_ek", op_k_encode, &c, KK + ek_len);
+        measure(KEMS[k].name, KEMS[k].level, "decode_ek", op_k_decode, &c, KK + ek_len);
+        measure(KEMS[k].name, KEMS[k].level, "encaps", op_k_encaps, &c, KK + ct_len + SS_LEN);
+        measure(KEMS[k].name, KEMS[k].level, "decaps", op_k_decaps, &c, KK + ct_len + SS_LEN);
+        wc_MlKemKey_Free(&kem_cli); wc_MlKemKey_Free(&kem_srv);
     }
+    measure("HKDF-SHA256", "--", "combine", op_hkdf, &c, SS_LEN + X_LEN + 32);
+    measure("X-Wing-SHA3-256", "--", "combine", op_xwing, &c, SS_LEN + 3 * X_LEN + 32);
+    wc_curve25519_free(&x_cli); wc_curve25519_free(&x_cli_peer); wc_curve25519_free(&x_srv);
 }
 
-/* Core 1: benchmark */
+/* ------------------------------------------------------------------------ */
+/* Core 1                                                                    */
+/* ------------------------------------------------------------------------ */
 static void core1_entry(void)
 {
     WC_RNG rng;
     int ret;
+    char cfg[96];
 
-    printf("wolfSSL %s | clk_sys %" PRIu32 " Hz | %d rounds + %d warm-up | levels: L1/L3/L5\n",
-           LIBWOLFSSL_VERSION_STRING, clock_get_hz(clk_sys), ROUNDS, WARMUP_ROUNDS);
-    printf("sizeof(MlKemKey) = %u B, sizeof(curve25519_key) = %u B\n",
-           (unsigned)sizeof(MlKemKey), (unsigned)sizeof(curve25519_key));
+    snprintf(cfg, sizeof cfg, "rounds=%d warmup=%d%s", KEM_ROUNDS, WARMUP_ROUNDS,
+#ifdef WITH_P256
+             " p256=1"
+#else
+             ""
+#endif
+    );
+    meta_print(cfg);
+    printf("CSV,meta,sizeof_MlKemKey,%u\n", (unsigned)sizeof(MlKemKey));
+    printf("CSV,meta,sizeof_curve25519_key,%u\n", (unsigned)sizeof(curve25519_key));
 
+    if ((ret = heaptrk_install()) != 0) { printf("ERROR: allocator hook (%d)\n", ret); goto halt; }
     ret = wolfCrypt_Init();
     if (ret == 0) ret = wc_InitRng(&rng);
     if (ret != 0) { printf("ERROR: wolfCrypt/RNG init failed (%d)\n", ret); goto halt; }
 
-    stat_init(&x_keygen); stat_init(&x_dh);
-    for (unsigned k = 0; k < N_KEMS; k++) {
-        stat_init(&kem_keygen[k]); stat_init(&kem_encaps[k]); stat_init(&kem_decaps[k]);
-        stat_init(&hyb_ckeygen[k]); stat_init(&hyb_sencaps[k]); stat_init(&hyb_cdecaps[k]);
-    }
+    for (unsigned k = 0; k < N_KEMS; k++)
+        for (int o = 0; o < N_OPS; o++) st_init(&ST[k][o]);
 
     for (unsigned k = 0; k < N_KEMS; k++) {
         printf("\n[%s / %s]\n", KEMS[k].name, KEMS[k].level);
-
-        for (int i = 0; i < WARMUP_ROUNDS; i++) {
-            ret = run_round(k, &rng, false);
-            if (ret) { printf("ERROR: %s warm-up failed: %d\n", KEMS[k].name, ret); goto halt; }
-        }
-        for (int i = 1; i <= ROUNDS; i++) {
-            ret = run_round(k, &rng, true);
-            if (ret) {
-                printf("ERROR: %s round %d: %d%s\n", KEMS[k].name, i, ret,
-                       ret == -9999 ? " (shared secrets do not match)" : "");
+        for (int i = 0; i < WARMUP_ROUNDS; i++)
+            if ((ret = run_round(k, &rng, false, 0)) != 0) { printf("ERROR: warm-up %d\n", ret); goto halt; }
+        for (uint32_t i = 0; i < KEM_ROUNDS; i++) {
+            if ((ret = run_round(k, &rng, true, i)) != 0) {
+                printf("ERROR: %s round %lu: %d%s\n", KEMS[k].name, (unsigned long)i, ret,
+                       ret == -9999 ? " (secrets do not match)" : "");
                 goto halt;
             }
         }
-        printf("  %s: %d rounds ok\n", KEMS[k].name, ROUNDS);
+        printf("  %s: %d rounds ok\n", KEMS[k].name, KEM_ROUNDS);
     }
+    print_summary();
 
-    print_results();
+#ifdef WITH_P256
+    printf("\n[P-256 ECDH]\n");
+    bench_p256(&rng);
+#endif
+
     memory_pass(&rng);
 
-    struct mallinfo mi = mallinfo();
-    printf("\n--- Heap ---\n");
-    printf("  arena high-water (upper bound on peak heap): %u B\n", (unsigned)mi.arena);
-    printf("CSV,heap_arena_bytes,all,%u\n", (unsigned)mi.arena);
-
+    {
+        struct mallinfo mi = mallinfo();
+        printf("CSV,heap_arena_bytes,all,%u\n", (unsigned)mi.arena);
+        printf("CSV,heap_tracked_peak_bytes,all,%u\n", (unsigned)ht.peak);
+    }
     wc_FreeRng(&rng);
     printf("\n=== PQC benchmark done ===\n");
 halt:
     while (true) tight_loop_contents();
 }
 
-/* Core 0: USB serial */
 int main(void)
 {
-    stdio_init_all();
-    while (!stdio_usb_connected()) {
-        sleep_ms(100);
-    }
-    sleep_ms(1000);
-    printf("\n=== PQC benchmark start (X25519 + ML-KEM L1/L3/L5, wolfCrypt) ===\n");
-
-    multicore_launch_core1_with_stack(core1_entry, core1_stack, sizeof(core1_stack));
-
-    while (true) {
-        sleep_ms(1000);
-    }
+    bench_main(core1_entry, "PQC benchmark start (hybrid X25519 + ML-KEM L1/L3/L5, wolfCrypt)");
 }

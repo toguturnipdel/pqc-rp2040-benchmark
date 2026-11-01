@@ -1,0 +1,52 @@
+
+=== PQC signature benchmark start (Ed25519 + ML-DSA + Falcon + SLH-DSA, paired) ===
+CSV,meta,firmware,sig_mem
+CSV,meta,wolfssl,5.9.2
+CSV,meta,clk_sys_hz,125000000
+CSV,meta,board_id,E66440A2CB935B2B
+CSV,meta,config,part=4 falcon_signer=small_mem lattice_rounds=100 falcon_kg_rounds=20 slh_f=20 slh_s=3 slh_sha2_128s=5 binding=composite-style
+CSV,meta,heap_capacity_bytes,198956
+CSV,meta,code_location,XIP
+CSV,meta,mldsa_build,small_mem
+CSV,meta,sizeof_ed25519_key,112
+  memory: Falcon-1024-smallmem
+CSV,mem,sig_mem,Falcon-1024-smallmem,L5,import,512,0,128,4108,0
+CSV,budget,sig_mem,Falcon-1024-smallmem,L5,import,C1,10240,5620,512,4108,PASS
+CSV,budget,sig_mem,Falcon-1024-smallmem,L5,import,C2,51200,46580,512,4108,PASS
+CSV,mem,sig_mem,Falcon-1024-smallmem,L5,sign,1832,116208,128,5533,0
+CSV,mem,sig_mem,Falcon-1024-smallmem,L5,verify,1192,8192,128,5533,0
+CSV,budget,sig_mem,Falcon-1024-smallmem,L5,verify,C1,10240,0,1192,5533,EXCEEDS
+CSV,budget,sig_mem,Falcon-1024-smallmem,L5,verify,C2,51200,44475,1192,5533,PASS
+CSV,budget,sig_mem,Falcon-1024-smallmem,L5,sign,C1,10240,0,1832,5533,EXCEEDS
+CSV,budget,sig_mem,Falcon-1024-smallmem,L5,sign,C2,51200,0,1832,5533,EXCEEDS
+CSV,meta,sig_bytes_Falcon-1024-smallmem,1280
+CSV,meta,sizeof_key_Falcon-1024-smallmem,4108
+  memory: Falcon-512-smallmem
+CSV,mem,sig_mem,Falcon-512-smallmem,L1,import,512,0,128,4108,0
+CSV,budget,sig_mem,Falcon-512-smallmem,L1,import,C1,10240,5620,512,4108,PASS
+CSV,budget,sig_mem,Falcon-512-smallmem,L1,import,C2,51200,46580,512,4108,PASS
+CSV,mem,sig_mem,Falcon-512-smallmem,L1,sign,1832,58864,128,4919,0
+CSV,mem,sig_mem,Falcon-512-smallmem,L1,verify,1192,4096,128,4919,0
+CSV,budget,sig_mem,Falcon-512-smallmem,L1,verify,C1,10240,0,1192,4919,EXCEEDS
+CSV,budget,sig_mem,Falcon-512-smallmem,L1,verify,C2,51200,45089,1192,4919,PASS
+CSV,budget,sig_mem,Falcon-512-smallmem,L1,sign,C1,10240,0,1832,4919,EXCEEDS
+CSV,budget,sig_mem,Falcon-512-smallmem,L1,sign,C2,51200,0,1832,4919,EXCEEDS
+CSV,meta,sig_bytes_Falcon-512-smallmem,666
+CSV,meta,sizeof_key_Falcon-512-smallmem,4108
+  memory: Falcon-512-smallmem
+CSV,mem,sig_mem,Falcon-512-smallmem,L1,keygen,4028,20488,128,4108,0
+CSV,budget,sig_mem,Falcon-512-smallmem,L1,keygen,C1,10240,0,4028,4108,EXCEEDS
+CSV,budget,sig_mem,Falcon-512-smallmem,L1,keygen,C2,51200,43064,4028,4108,PASS
+CSV,mem,sig_mem,Falcon-512-smallmem,L1,sign,1832,58864,128,4919,0
+CSV,mem,sig_mem,Falcon-512-smallmem,L1,verify,1192,4096,128,4919,0
+CSV,budget,sig_mem,Falcon-512-smallmem,L1,verify,C1,10240,0,1192,4919,EXCEEDS
+CSV,budget,sig_mem,Falcon-512-smallmem,L1,verify,C2,51200,45089,1192,4919,PASS
+CSV,budget,sig_mem,Falcon-512-smallmem,L1,sign,C1,10240,0,1832,4919,EXCEEDS
+CSV,budget,sig_mem,Falcon-512-smallmem,L1,sign,C2,51200,0,1832,4919,EXCEEDS
+CSV,meta,sig_bytes_Falcon-512-smallmem,666
+CSV,meta,sizeof_key_Falcon-512-smallmem,4108
+CSV,mem,sig_mem,Falcon-1024-smallmem,L5,keygen,4028,40968,128,4108,0
+CSV,heap_arena_bytes,all,125228
+CSV,heap_tracked_peak_bytes,all,41096
+
+=== signature benchmark done ===

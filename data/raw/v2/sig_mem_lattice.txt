@@ -1,0 +1,100 @@
+
+=== PQC signature benchmark start (Ed25519 + ML-DSA + Falcon + SLH-DSA, paired) ===
+CSV,meta,firmware,sig_mem
+CSV,meta,wolfssl,5.9.2
+CSV,meta,clk_sys_hz,125000000
+CSV,meta,board_id,E66440A2CB935B2B
+CSV,meta,config,part=1 falcon_signer=default lattice_rounds=100 falcon_kg_rounds=20 slh_f=20 slh_s=3 slh_sha2_128s=5 binding=composite-style
+CSV,meta,code_location,XIP
+CSV,meta,mldsa_build,small_mem
+CSV,meta,sizeof_ed25519_key,112
+CSV,mem,sig_mem,Ed25519,--,keygen,1476,375,128,112,0
+CSV,budget,sig_mem,Ed25519,--,keygen,C1,10240,8652,1476,112,PASS
+CSV,budget,sig_mem,Ed25519,--,keygen,C2,51200,49612,1476,112,PASS
+CSV,mem,sig_mem,Ed25519,--,sign,1644,352,128,321,0
+CSV,budget,sig_mem,Ed25519,--,sign,C1,10240,8275,1644,321,PASS
+CSV,budget,sig_mem,Ed25519,--,sign,C2,51200,49235,1644,321,PASS
+CSV,mem,sig_mem,Ed25519,--,verify,1716,2848,128,321,0
+CSV,budget,sig_mem,Ed25519,--,verify,C1,10240,8203,1716,321,PASS
+CSV,budget,sig_mem,Ed25519,--,verify,C2,51200,49163,1716,321,PASS
+CSV,mem,sig_mem,Composite-bind,--,bind,1196,352,128,145,0
+CSV,budget,sig_mem,Composite-bind,--,bind,C1,10240,8899,1196,145,PASS
+CSV,budget,sig_mem,Composite-bind,--,bind,C2,51200,49859,1196,145,PASS
+  memory: ML-DSA-44
+CSV,mem,sig_mem,ML-DSA-44,L2,keygen,1020,16472,128,7912,0
+CSV,budget,sig_mem,ML-DSA-44,L2,keygen,C1,10240,0,1020,7912,EXCEEDS
+CSV,budget,sig_mem,ML-DSA-44,L2,keygen,C2,51200,42268,1020,7912,PASS
+CSV,mem,sig_mem,ML-DSA-44,L2,sign,1140,19272,128,10477,0
+CSV,mem,sig_mem,ML-DSA-44,L2,verify,1116,10824,128,10477,0
+CSV,budget,sig_mem,ML-DSA-44,L2,verify,C1,10240,0,1116,10477,EXCEEDS
+CSV,budget,sig_mem,ML-DSA-44,L2,verify,C2,51200,39607,1116,10477,PASS
+CSV,budget,sig_mem,ML-DSA-44,L2,sign,C1,10240,0,1140,10477,EXCEEDS
+CSV,budget,sig_mem,ML-DSA-44,L2,sign,C2,51200,39583,1140,10477,PASS
+CSV,meta,sig_bytes_ML-DSA-44,2420
+CSV,meta,sizeof_key_ML-DSA-44,7912
+  memory: ML-DSA-65
+CSV,mem,sig_mem,ML-DSA-65,L3,keygen,1020,21592,128,7912,0
+CSV,budget,sig_mem,ML-DSA-65,L3,keygen,C1,10240,0,1020,7912,EXCEEDS
+CSV,budget,sig_mem,ML-DSA-65,L3,keygen,C2,51200,42268,1020,7912,PASS
+CSV,mem,sig_mem,ML-DSA-65,L3,sign,1140,24392,128,11366,0
+CSV,mem,sig_mem,ML-DSA-65,L3,verify,1116,11848,128,11366,0
+CSV,budget,sig_mem,ML-DSA-65,L3,verify,C1,10240,0,1116,11366,EXCEEDS
+CSV,budget,sig_mem,ML-DSA-65,L3,verify,C2,51200,38718,1116,11366,PASS
+CSV,budget,sig_mem,ML-DSA-65,L3,sign,C1,10240,0,1140,11366,EXCEEDS
+CSV,budget,sig_mem,ML-DSA-65,L3,sign,C2,51200,38694,1140,11366,PASS
+CSV,meta,sig_bytes_ML-DSA-65,3309
+CSV,meta,sizeof_key_ML-DSA-65,7912
+  memory: ML-DSA-87
+CSV,mem,sig_mem,ML-DSA-87,L5,keygen,1020,27736,128,7912,0
+CSV,budget,sig_mem,ML-DSA-87,L5,keygen,C1,10240,0,1020,7912,EXCEEDS
+CSV,budget,sig_mem,ML-DSA-87,L5,keygen,C2,51200,42268,1020,7912,PASS
+CSV,mem,sig_mem,ML-DSA-87,L5,sign,1140,30536,128,12684,0
+CSV,mem,sig_mem,ML-DSA-87,L5,verify,1116,14152,128,12684,0
+CSV,budget,sig_mem,ML-DSA-87,L5,verify,C1,10240,0,1116,12684,EXCEEDS
+CSV,budget,sig_mem,ML-DSA-87,L5,verify,C2,51200,37400,1116,12684,PASS
+CSV,budget,sig_mem,ML-DSA-87,L5,sign,C1,10240,0,1140,12684,EXCEEDS
+CSV,budget,sig_mem,ML-DSA-87,L5,sign,C2,51200,37376,1140,12684,PASS
+CSV,meta,sig_bytes_ML-DSA-87,4627
+CSV,meta,sizeof_key_ML-DSA-87,7912
+  memory: Falcon-512
+CSV,mem,sig_mem,Falcon-512,L1,import,512,0,128,4108,0
+CSV,budget,sig_mem,Falcon-512,L1,import,C1,10240,5620,512,4108,PASS
+CSV,budget,sig_mem,Falcon-512,L1,import,C2,51200,46580,512,4108,PASS
+CSV,mem,sig_mem,Falcon-512,L1,sign,1544,112112,128,4919,0
+CSV,mem,sig_mem,Falcon-512,L1,verify,1192,4096,128,4919,0
+CSV,budget,sig_mem,Falcon-512,L1,verify,C1,10240,0,1192,4919,EXCEEDS
+CSV,budget,sig_mem,Falcon-512,L1,verify,C2,51200,45089,1192,4919,PASS
+CSV,budget,sig_mem,Falcon-512,L1,sign,C1,10240,0,1544,4919,EXCEEDS
+CSV,budget,sig_mem,Falcon-512,L1,sign,C2,51200,0,1544,4919,EXCEEDS
+CSV,meta,sig_bytes_Falcon-512,666
+CSV,meta,sizeof_key_Falcon-512,4108
+  memory: Falcon-1024
+CSV,mem,sig_mem,Falcon-1024,L5,import,512,0,128,4108,0
+CSV,budget,sig_mem,Falcon-1024,L5,import,C1,10240,5620,512,4108,PASS
+CSV,budget,sig_mem,Falcon-1024,L5,import,C2,51200,46580,512,4108,PASS
+CSV,mem,sig_mem,Falcon-1024,L5,sign,656,1520,128,5533,-125
+CSV,allocfail,sig_mem,Falcon-1024,L5,sign,1,180224,1648
+CSV,mem,sig_mem,Falcon-1024,L5,verify,512,0,128,5533,-132
+CSV,budget,sig_mem,Falcon-1024,L5,verify,C1,10240,0,512,5533,NOT_RUN_UNCONSTRAINED_FAILED
+CSV,budget,sig_mem,Falcon-1024,L5,verify,C2,51200,0,512,5533,NOT_RUN_UNCONSTRAINED_FAILED
+CSV,budget,sig_mem,Falcon-1024,L5,sign,C1,10240,0,656,5533,NOT_RUN_UNCONSTRAINED_FAILED
+CSV,budget,sig_mem,Falcon-1024,L5,sign,C2,51200,0,656,5533,NOT_RUN_UNCONSTRAINED_FAILED
+CSV,meta,sig_bytes_Falcon-1024,1280
+CSV,meta,sizeof_key_Falcon-1024,4108
+  memory: Falcon-512
+CSV,mem,sig_mem,Falcon-512,L1,keygen,4028,20488,128,4108,0
+CSV,budget,sig_mem,Falcon-512,L1,keygen,C1,10240,0,4028,4108,EXCEEDS
+CSV,budget,sig_mem,Falcon-512,L1,keygen,C2,51200,43064,4028,4108,PASS
+CSV,mem,sig_mem,Falcon-512,L1,sign,1544,112112,128,4919,0
+CSV,mem,sig_mem,Falcon-512,L1,verify,1192,4096,128,4919,0
+CSV,budget,sig_mem,Falcon-512,L1,verify,C1,10240,0,1192,4919,EXCEEDS
+CSV,budget,sig_mem,Falcon-512,L1,verify,C2,51200,45089,1192,4919,PASS
+CSV,budget,sig_mem,Falcon-512,L1,sign,C1,10240,0,1544,4919,EXCEEDS
+CSV,budget,sig_mem,Falcon-512,L1,sign,C2,51200,0,1544,4919,EXCEEDS
+CSV,meta,sig_bytes_Falcon-512,666
+CSV,meta,sizeof_key_Falcon-512,4108
+CSV,mem,sig_mem,Falcon-1024,L5,keygen,4028,40968,128,4108,0
+CSV,heap_arena_bytes,all,116948
+CSV,heap_tracked_peak_bytes,all,41096
+
+=== signature benchmark done ===

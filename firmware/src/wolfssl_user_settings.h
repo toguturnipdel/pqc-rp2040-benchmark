@@ -57,4 +57,36 @@ extern int pico_rng_seed(unsigned char *output, unsigned int sz);
 #define WOLFSSL_DILITHIUM_SIGN_SMALL_MEM
 #define WOLFSSL_DILITHIUM_VERIFY_SMALL_MEM
 
+/* Optional P-256 with wolfCrypt SP math and its ARMv6-M Thumb assembly
+ * (classical alternative to X25519; enabled with -DWITH_P256). */
+#ifdef WITH_P256
+    #define WOLFSSL_HAVE_SP_ECC
+    #define WOLFSSL_SP_ARM_THUMB_ASM
+    #define WOLFSSL_SP_NO_384
+    #define WOLFSSL_SP_NO_521
+    #define ECC_USER_CURVES
+#endif
+
+/* Optional wolfCrypt small Curve25519/Ed25519 implementation (fe_low_mem.c)
+ * instead of the default ref10-style fe_operations.c (-DCURVE_SMALL). */
+#ifdef CURVE_SMALL
+    #define CURVED25519_SMALL
+#endif
+
+/* Optional speed-oriented ML-DSA build (-DMLDSA_SPEED): drops the low-memory
+ * options below. ML-DSA-87 is not expected to fit in this configuration. */
+#ifdef MLDSA_SPEED
+    #undef WOLFSSL_DILITHIUM_SMALL_MEM_POLY64
+    #undef WOLFSSL_DILITHIUM_MAKE_KEY_SMALL_MEM
+    #undef WOLFSSL_DILITHIUM_SIGN_SMALL_MEM
+    #undef WOLFSSL_DILITHIUM_VERIFY_SMALL_MEM
+#endif
+
+/* Optional small-memory Falcon signer (-DFALCON_SIGN_SMALL). The default signer
+ * allocates the expanded key and scratch as one block (about 180 KB for
+ * Falcon-1024), which exceeds the RP2040 heap; this signer needs about 90 KB. */
+#ifdef FALCON_SIGN_SMALL
+    #define WOLFSSL_FALCON_SIGN_SMALL_MEM
+#endif
+
 #endif /* WOLFSSL_USER_SETTINGS_H */

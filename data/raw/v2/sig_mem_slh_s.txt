@@ -1,0 +1,87 @@
+
+=== PQC signature benchmark start (Ed25519 + ML-DSA + Falcon + SLH-DSA, paired) ===
+CSV,meta,firmware,sig_mem
+CSV,meta,wolfssl,5.9.2
+CSV,meta,clk_sys_hz,125000000
+CSV,meta,board_id,E66440A2CB935B2B
+CSV,meta,config,part=3 falcon_signer=default lattice_rounds=100 falcon_kg_rounds=20 slh_f=20 slh_s=3 slh_sha2_128s=5 binding=composite-style
+CSV,meta,heap_capacity_bytes,153964
+CSV,meta,code_location,XIP
+CSV,meta,mldsa_build,small_mem
+CSV,meta,sizeof_ed25519_key,112
+  memory: SLH-DSA-SHA2-128s
+CSV,mem,sig_mem,SLH-DSA-SHA2-128s,L1,keygen,732,2848,128,1160,0
+CSV,budget,sig_mem,SLH-DSA-SHA2-128s,L1,keygen,C1,10240,8348,732,1160,PASS
+CSV,budget,sig_mem,SLH-DSA-SHA2-128s,L1,keygen,C2,51200,49308,732,1160,PASS
+CSV,mem,sig_mem,SLH-DSA-SHA2-128s,L1,sign,1372,2848,128,9161,0
+CSV,mem,sig_mem,SLH-DSA-SHA2-128s,L1,verify,1004,2400,128,9161,0
+CSV,budget,sig_mem,SLH-DSA-SHA2-128s,L1,verify,C1,10240,0,1004,9161,EXCEEDS
+CSV,budget,sig_mem,SLH-DSA-SHA2-128s,L1,verify,C2,51200,41035,1004,9161,PASS
+CSV,budget,sig_mem,SLH-DSA-SHA2-128s,L1,sign,C1,10240,0,1372,9161,EXCEEDS
+CSV,budget,sig_mem,SLH-DSA-SHA2-128s,L1,sign,C2,51200,40667,1372,9161,PASS
+CSV,meta,sig_bytes_SLH-DSA-SHA2-128s,7856
+CSV,meta,sizeof_key_SLH-DSA-SHA2-128s,1160
+  memory: SLH-DSA-SHAKE-128s
+CSV,mem,sig_mem,SLH-DSA-SHAKE-128s,L1,keygen,816,2592,128,1160,0
+CSV,budget,sig_mem,SLH-DSA-SHAKE-128s,L1,keygen,C1,10240,8264,816,1160,PASS
+CSV,budget,sig_mem,SLH-DSA-SHAKE-128s,L1,keygen,C2,51200,49224,816,1160,PASS
+CSV,mem,sig_mem,SLH-DSA-SHAKE-128s,L1,sign,1456,2592,128,9161,0
+CSV,mem,sig_mem,SLH-DSA-SHAKE-128s,L1,verify,1096,2144,128,9161,0
+CSV,budget,sig_mem,SLH-DSA-SHAKE-128s,L1,verify,C1,10240,0,1096,9161,EXCEEDS
+CSV,budget,sig_mem,SLH-DSA-SHAKE-128s,L1,verify,C2,51200,40943,1096,9161,PASS
+CSV,budget,sig_mem,SLH-DSA-SHAKE-128s,L1,sign,C1,10240,0,1456,9161,EXCEEDS
+CSV,budget,sig_mem,SLH-DSA-SHAKE-128s,L1,sign,C2,51200,40583,1456,9161,PASS
+CSV,meta,sig_bytes_SLH-DSA-SHAKE-128s,7856
+CSV,meta,sizeof_key_SLH-DSA-SHAKE-128s,1160
+  memory: SLH-DSA-SHA2-192s
+CSV,mem,sig_mem,SLH-DSA-SHA2-192s,L3,keygen,1564,2848,128,1160,0
+CSV,budget,sig_mem,SLH-DSA-SHA2-192s,L3,keygen,C1,10240,7516,1564,1160,PASS
+CSV,budget,sig_mem,SLH-DSA-SHA2-192s,L3,keygen,C2,51200,48476,1564,1160,PASS
+CSV,mem,sig_mem,SLH-DSA-SHA2-192s,L3,sign,2268,2848,128,17529,0
+CSV,mem,sig_mem,SLH-DSA-SHA2-192s,L3,verify,1916,2400,128,17529,0
+CSV,budget,sig_mem,SLH-DSA-SHA2-192s,L3,verify,C1,10240,0,1916,17529,EXCEEDS
+CSV,budget,sig_mem,SLH-DSA-SHA2-192s,L3,verify,C2,51200,31755,1916,17529,PASS
+CSV,budget,sig_mem,SLH-DSA-SHA2-192s,L3,sign,C1,10240,0,2268,17529,EXCEEDS
+CSV,budget,sig_mem,SLH-DSA-SHA2-192s,L3,sign,C2,51200,31403,2268,17529,PASS
+CSV,meta,sig_bytes_SLH-DSA-SHA2-192s,16224
+CSV,meta,sizeof_key_SLH-DSA-SHA2-192s,1160
+  memory: SLH-DSA-SHAKE-192s
+CSV,mem,sig_mem,SLH-DSA-SHAKE-192s,L3,keygen,816,2592,128,1160,0
+CSV,budget,sig_mem,SLH-DSA-SHAKE-192s,L3,keygen,C1,10240,8264,816,1160,PASS
+CSV,budget,sig_mem,SLH-DSA-SHAKE-192s,L3,keygen,C2,51200,49224,816,1160,PASS
+CSV,mem,sig_mem,SLH-DSA-SHAKE-192s,L3,sign,1456,2592,128,17529,0
+CSV,mem,sig_mem,SLH-DSA-SHAKE-192s,L3,verify,1096,2144,128,17529,0
+CSV,budget,sig_mem,SLH-DSA-SHAKE-192s,L3,verify,C1,10240,0,1096,17529,EXCEEDS
+CSV,budget,sig_mem,SLH-DSA-SHAKE-192s,L3,verify,C2,51200,32575,1096,17529,PASS
+CSV,budget,sig_mem,SLH-DSA-SHAKE-192s,L3,sign,C1,10240,0,1456,17529,EXCEEDS
+CSV,budget,sig_mem,SLH-DSA-SHAKE-192s,L3,sign,C2,51200,32215,1456,17529,PASS
+CSV,meta,sig_bytes_SLH-DSA-SHAKE-192s,16224
+CSV,meta,sizeof_key_SLH-DSA-SHAKE-192s,1160
+  memory: SLH-DSA-SHA2-256s
+CSV,mem,sig_mem,SLH-DSA-SHA2-256s,L5,keygen,1564,2848,128,1160,0
+CSV,budget,sig_mem,SLH-DSA-SHA2-256s,L5,keygen,C1,10240,7516,1564,1160,PASS
+CSV,budget,sig_mem,SLH-DSA-SHA2-256s,L5,keygen,C2,51200,48476,1564,1160,PASS
+CSV,mem,sig_mem,SLH-DSA-SHA2-256s,L5,sign,2268,2848,128,31097,0
+CSV,mem,sig_mem,SLH-DSA-SHA2-256s,L5,verify,1916,2400,128,31097,0
+CSV,budget,sig_mem,SLH-DSA-SHA2-256s,L5,verify,C1,10240,0,1916,31097,EXCEEDS
+CSV,budget,sig_mem,SLH-DSA-SHA2-256s,L5,verify,C2,51200,18187,1916,31097,PASS
+CSV,budget,sig_mem,SLH-DSA-SHA2-256s,L5,sign,C1,10240,0,2268,31097,EXCEEDS
+CSV,budget,sig_mem,SLH-DSA-SHA2-256s,L5,sign,C2,51200,17835,2268,31097,PASS
+CSV,meta,sig_bytes_SLH-DSA-SHA2-256s,29792
+CSV,meta,sizeof_key_SLH-DSA-SHA2-256s,1160
+  memory: SLH-DSA-SHAKE-256s
+CSV,mem,sig_mem,SLH-DSA-SHAKE-256s,L5,keygen,816,2592,128,1160,0
+CSV,budget,sig_mem,SLH-DSA-SHAKE-256s,L5,keygen,C1,10240,8264,816,1160,PASS
+CSV,budget,sig_mem,SLH-DSA-SHAKE-256s,L5,keygen,C2,51200,49224,816,1160,PASS
+CSV,mem,sig_mem,SLH-DSA-SHAKE-256s,L5,sign,1456,2592,128,31097,0
+CSV,mem,sig_mem,SLH-DSA-SHAKE-256s,L5,verify,1096,2144,128,31097,0
+CSV,budget,sig_mem,SLH-DSA-SHAKE-256s,L5,verify,C1,10240,0,1096,31097,EXCEEDS
+CSV,budget,sig_mem,SLH-DSA-SHAKE-256s,L5,verify,C2,51200,19007,1096,31097,PASS
+CSV,budget,sig_mem,SLH-DSA-SHAKE-256s,L5,sign,C1,10240,0,1456,31097,EXCEEDS
+CSV,budget,sig_mem,SLH-DSA-SHAKE-256s,L5,sign,C2,51200,18647,1456,31097,PASS
+CSV,meta,sig_bytes_SLH-DSA-SHAKE-256s,29792
+CSV,meta,sizeof_key_SLH-DSA-SHAKE-256s,1160
+CSV,heap_arena_bytes,all,6508
+CSV,heap_tracked_peak_bytes,all,2720
+
+=== signature benchmark done ===
