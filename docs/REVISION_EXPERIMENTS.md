@@ -43,9 +43,9 @@ by `analysis/revision_analysis.py`.
 | E6 | R1-3, R2-6, R4-2 | `pqc_sig_testbed` (Falcon with provisioned keys; on-device Falcon-1024 attempt) | (E1 lattice) | (E1) |
 | E7 | R1-1, R2-2, R4-3 | `pqc_x25519_alt`, `pqc_x25519_alt_small` | `x25519_alt.txt`, `x25519_alt_small.txt` | 3 min each |
 | E8 | R1-6, R3-1 | `pqc_handshake` + `host/hs_server.py` | `handshake.txt` (written by the script) | 2 min |
-| E9 | R1-5, R2-5, R3-2 | `pqc_energy` + external current meter | `energy_log.txt` + meter export | 5 min |
+| E9 | R1-5, R2-5, R3-2 | `pqc_energy` + external current meter | `energy_log.txt` + meter export | 5 min (not performed for the paper) |
 | E10 | R1-4 | `pqc_mldsa_dist_speed` (1,000 per level) | `mldsa_dist_speed.txt` | about 40 min |
-| E11 | R1-2 | `pqc_pico_testbed` and `pqc_sig_testbed SIG_PART=1` on a second Pico | `kem_board2.txt`, `sig_lattice_board2.txt` | 20 min |
+| E11 | R1-2 | `pqc_pico_testbed` and `pqc_sig_testbed SIG_PART=1` on a second Pico | `kem_board2.txt`, `sig_lattice_board2.txt` | 20 min (not performed for the paper) |
 | E12 | R2-7 | `pqc_slh_xip`, `pqc_slh_sram`, `pqc_kem_sram` | `slh_xip.txt`, `slh_sram.txt`, `kem_sram.txt` | 13 + 13 + 3 min |
 | P-256 | R1-3 (other pairings), R1-1 | `pqc_kem_p256` | `kem_p256.txt` | about 5 min |
 

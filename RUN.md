@@ -1,6 +1,8 @@
 # Running the revision experiments
 
-Everything needed to regenerate the numbers marked "xx" in the revised manuscript.
+How to rebuild the firmware, repeat the measurements and regenerate every table and figure value in the
+revised manuscript. The logs used in the paper are already in `data/raw/v2/`; to reproduce the tables from
+them, only step 4 is needed.
 
 ## 1. One-time setup (Linux or WSL)
 
@@ -34,7 +36,7 @@ python host/run_experiments.py --all      # core + long steps, about 16 h in tot
 Logs go to `data/raw/v2/<step>.txt`. Finished steps are skipped, so you can stop
 (Ctrl-C) and restart at any time; `--force` re-runs. Single steps: `--steps kem,sig_lattice`.
 
-Optional:
+Optional (supported by the firmware but not performed for the paper; see its Section 6.4):
 
 * Second Pico (board agreement, R1-2): connect it alone and run
   `python host/run_experiments.py --board-tag board2 --steps kem,sig_lattice`.
@@ -58,9 +60,9 @@ Where each manuscript placeholder comes from:
 | Fig. 4 | mldsa_dist | fig_mldsa_ccdf.pdf |
 | Speed-build ML-DSA (Section 5.2) | mldsa_dist_speed | mldsa_distribution.csv (build = speed) |
 | Table 6, Section 5.4, Table 12 | kem, sig_mem_* | memory_per_op.csv, ram_budget_matrix.csv, allocation_failures.csv |
-| Tables 7 and 8 | kem, sig_* | kem_roles.csv (energy_model_mJ_median), sig_ops.csv × 0.0792 |
+| Tables 7 and 8 (constant-power model) | kem, sig_* | kem_roles.csv (energy_model_mJ_median), sig_ops.csv × 0.0792 |
 | Table 9, Section 5.6 | handshake | handshake.csv |
-| Table 10, Section 5.7 | slh_xip, slh_sram, kem, kem_sram | codeloc_xip_vs_sram.csv, board_agreement.csv |
+| Table 10, Section 5.7 | slh_xip, slh_sram, kem, kem_sram | codeloc_xip_vs_sram.csv |
 | Table 11, Section 6.1 | x25519_alt, x25519_alt_small | x25519_impls.csv, x25519_cm0_hybrid_share.csv |
 
 Falcon rows from the small-memory signer carry the suffix "-smallmem" (step sig_falcon_small);
